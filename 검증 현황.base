@@ -1,0 +1,50 @@
+filters:
+  and:
+    - file.ext == "md"
+    - note.category != null
+formulas:
+  검증후경과일: if(note.verified, (today() - date(note.verified)).days, "")
+properties:
+  file.name:
+    displayName: 노트
+  note.category:
+    displayName: 분류
+  note.updated:
+    displayName: 마지막 수정
+  note.verified:
+    displayName: 전체 검증
+  formula.검증후경과일:
+    displayName: 검증 후 경과일
+views:
+  - type: table
+    name: 전체 노트
+    order:
+      - file.name
+      - category
+      - updated
+      - verified
+      - formula.검증후경과일
+  - type: table
+    name: 미검증
+    filters: "!note.verified"
+    order:
+      - file.name
+      - category
+      - updated
+      - verified
+  - type: table
+    name: 6개월 경과
+    filters: if(note.verified, date(note.verified) <= today() - "6M", false)
+    order:
+      - file.name
+      - category
+      - verified
+      - formula.검증후경과일
+  - type: table
+    name: 검증 후 수정
+    filters: if(note.verified && note.updated, date(note.updated) > date(note.verified), false)
+    order:
+      - file.name
+      - category
+      - updated
+      - verified

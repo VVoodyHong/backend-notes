@@ -1,0 +1,13 @@
+# Obsidian device settings and deleted notes
+.obsidian/
+.trash/
+
+# Local environment and editor files
+.DS_Store
+Thumbs.db
+.env
+.env.*
+!.env.example
+*.tmp
+*.swp
+*~

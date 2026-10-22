@@ -2,7 +2,7 @@
 category: "Spring/웹 심화"
 tags: ["spring", "cors", "spring-mvc"]
 aliases: ["CORS", "Cross-Origin Resource Sharing"]
-updated: 2026-09-23
+updated: 2026-10-22
 verified: 2026-09-08
 ---
 
@@ -37,6 +37,7 @@ public class CorsConfig implements WebMvcConfigurer {
             .allowedOrigins("https://app.example.com")
             .allowedMethods("GET", "POST", "PUT", "DELETE")
             .allowedHeaders("Authorization", "Content-Type")
+            .exposedHeaders("ETag", "Location")
             .allowCredentials(true)
             .maxAge(3600);
     }
@@ -49,6 +50,8 @@ public class CorsConfig implements WebMvcConfigurer {
 
 - **Security 연동**: preflight에는 일반적으로 로그인 쿠키가 없으므로 인증보다 먼저 CORS를 처리한다. http.cors(withDefaults())와 MVC가 있으면 별도 CorsConfigurationSource 없이 MVC 설정을 사용할 수도 있다. 여러 source가 있으면 사용할 source를 체인별로 지정한다.
 - **자격증명 모드**: credentials=include인 요청은 Allow-Origin의 *를 허용하지 않는다. 명시적 Authorization 헤더가 있다는 사실만으로 항상 include 모드인 것은 아니다. Bearer 헤더는 Access-Control-Allow-Headers에 명시적으로 허용해야 한다. 모든 origin에 매칭되는 allowedOriginPatterns("*") 역시 인증된 응답을 폭넓게 공개하므로 신뢰할 출처로 제한한다.
+- **응답 헤더 읽기**: `allowedHeaders`는 요청 헤더 허용이고 `exposedHeaders`는 브라우저 스크립트에 응답 헤더를 공개하는 설정이다. 응답이 200이어도 `ETag`·`Location`처럼 CORS 기본 공개 목록 밖의 헤더는 별도 노출 없이는 읽지 못한다. 예제는 두 헤더를 사용하는 API를 전제로 하며, `Set-Cookie`는 노출 목록에 적어도 스크립트가 읽을 수 없다.
+- **캐시와 Origin**: 출처에 따라 `Access-Control-Allow-Origin`을 다르게 반환하면 프록시·CDN이 그 응답을 섞지 않아야 한다. 7.0.9의 구성된 `DefaultCorsProcessor`는 `Vary: Origin, Access-Control-Request-Method, Access-Control-Request-Headers`를 추가한다. 중간 계층이 이 헤더를 제거하거나 캐시 키에서 무시하는지 확인한다. `Vary: Origin`은 사용자별 응답 캐시 격리까지 보장하지 않는다.
 
 ## 심화 Q&A
 
@@ -80,3 +83,9 @@ A. 프록시 레벨에서 별도로 CORS 헤더를 추가하거나 동일 헤더
 - [Fetch Standard](https://fetch.spec.whatwg.org/) — preflight·credentials mode·헤더 허용.
 
 부분 재검증: 2026-09-23. [DefaultCorsProcessor 7.0.9 소스](https://raw.githubusercontent.com/spring-projects/spring-framework/v7.0.9/spring-web/src/main/java/org/springframework/web/cors/DefaultCorsProcessor.java)의 Origin 검사·403 거부·CORS가 아닌 요청의 통과 분기를 확인해 서버 측 검사와 브라우저 정책을 구분했다. [Fetch Standard](https://fetch.spec.whatwg.org/)의 credentials 모드와 명시적 Authorization 헤더의 구분에 맞춰 allowCredentials 설명도 좁혔다. 이 문단과 관련 설명만 확인했으며 실행 시험 없이 기존 verified를 유지했다.
+
+부분 재검증: 2026-10-22. 응답 헤더 공개와 캐시 변형 조건을 공식 자료로 확인했다. 브라우저·프록시 통합 실행은 하지 않았으며 전체 `verified`는 유지한다.
+
+- [Spring MVC CORS](https://docs.spring.io/spring-framework/reference/web/webmvc-cors.html) — `exposedHeaders`와 요청 헤더 허용의 구분.
+- [Fetch Living Standard](https://fetch.spec.whatwg.org/#cors-protocol-and-credentials) — CORS 응답 헤더 공개·금지된 Set-Cookie 응답 헤더(2026-10-22 확인).
+- [DefaultCorsProcessor 7.0.9](https://github.com/spring-projects/spring-framework/blob/v7.0.9/spring-web/src/main/java/org/springframework/web/cors/DefaultCorsProcessor.java) — 설정이 있는 요청의 Vary 추가와 응답 헤더 설정.

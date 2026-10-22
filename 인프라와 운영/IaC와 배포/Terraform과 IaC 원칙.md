@@ -2,7 +2,7 @@
 category: "인프라와 운영/IaC와 배포"
 tags: ["operations", "terraform", "iac", "devops", "provisioning"]
 aliases: ["Infrastructure as Code", "IaC"]
-updated: 2026-10-04
+updated: 2026-10-22
 verified: 2026-09-08
 ---
 
@@ -75,7 +75,7 @@ sensitive는 출력 마스킹이며 state/plan 저장을 생략하는 기능이 
 - **drift 감지**: 누군가 콘솔에서 수동으로 리소스를 바꾸면 실제 상태와 state가 어긋난다(drift). `terraform plan`을 주기적으로(CI 스케줄) 돌려 drift를 감지하고, 발견하면 코드로 반영하거나 `terraform apply`로 되돌린다.
 - **`terraform import`와 삭제 방지**: 이미 존재하는 리소스를 Terraform 관리 하에 두려면 import가 필요하며 실수하기 쉽다. 운영 DB처럼 절대 삭제되면 안 되는 리소스는 `lifecycle { prevent_destroy = true }`로 보호한다.
 - **모듈 버전 고정**: 원격 모듈(Terraform Registry, git)을 버전 핀 없이 쓰면 모듈 작성자의 변경이 그대로 반영되어 예기치 않은 리소스 변경이 발생한다. `version` 또는 git 태그로 고정한다.
-- **`create_before_destroy`**: 무중단으로 리소스를 교체해야 할 때(예: 시작 스크립트 변경으로 인스턴스 재생성) 기본 동작인 destroy-then-create 대신 새 리소스를 먼저 만들고 이전 것을 삭제하도록 지정한다. 단, 이름 충돌(unique 제약)이 있는 리소스는 별도 처리가 필요하다.
+- **`create_before_destroy`**: 교체가 필요한 리소스의 생성·삭제 순서를 바꾸는 옵션이며 무중단 배포 보장은 아니다. 새 리소스의 생성 완료와 애플리케이션의 준비 완료는 다를 수 있으므로, LB 등록·헬스 체크·트래픽 전환·기존 연결 드레이닝을 별도로 설계한다. 구·신 리소스가 함께 존재할 이름·용량·쿼터도 필요하다. 이 동작은 의존 리소스로 전파되며 destroy-time provisioner를 실행하지 않으므로, 삭제 시 스크립트에만 해제·정리 작업을 맡기면 누락될 수 있다.
 - **비용 관리**: `plan` 결과를 Infracost 같은 도구와 CI에 연계해 리소스 변경이 초래할 비용 증가를 배포 전에 가시화하는 패턴이 흔하다.
 
 ### 잠금 장애와 저장된 plan의 운영 경계
@@ -119,3 +119,5 @@ A. 일반적으로 Terraform은 클러스터 자체, VPC, IAM, 관리형 데이�
 부분 재검증: 2026-09-22. [Terraform apply](https://docs.hashicorp.com/terraform/tutorials/cli/apply)의 부분 적용·자동 rollback 부재와 [terraform_remote_state](https://developer.hashicorp.com/terraform/language/state/remote-state-data)의 전체 snapshot 접근 경고를 대조했다. 그 외 서술은 이번 확인 범위 밖이므로 `verified`는 유지했다.
 
 부분 재검증: 2026-10-04. [Terraform State Locking](https://developer.hashicorp.com/terraform/language/state/locking)와 [plan 명령](https://developer.hashicorp.com/terraform/cli/commands/plan#out-filename) — 조회 문서 v1.16.x의 backend별 잠금 지원·자신의 lock 해제 조건·saved plan의 민감 데이터 저장을 확인했다. CI 실행 종료 확인과 아티팩트 관리는 이 계약에 따른 운영 절차다. 실제 backend 잠금·force-unlock·apply 실행과 전체 기존 주장은 재검증하지 않아 `verified`를 유지했다.
+
+부분 재검증: 2026-10-22. [Terraform lifecycle — create_before_destroy](https://developer.hashicorp.com/terraform/language/meta-arguments/lifecycle#create_before_destroy)의 표시 v1.17.x 문서에서 생성·삭제 순서, 공존 제약, 의존 리소스 전파와 destroy-time provisioner 생략을 확인했다. 준비 상태·트래픽 전환의 별도 설계는 이 옵션이 리소스 수명 주기 순서를 제어한다는 계약에서 도출한 운영 지침이다. 실제 provider 리소스 교체·서비스 무중단 시험 및 기존 backend 설정 전체는 재검증하지 않아 `verified`를 유지했다.

@@ -1,7 +1,7 @@
 ---
 category: "Java/언어 핵심"
 tags: ["java", "record", "불변객체", "값타입", "jep"]
-updated: 2026-09-23
+updated: 2026-10-22
 verified: 2026-09-08
 ---
 
@@ -63,7 +63,7 @@ double area(Shape shape) {
 - DTO, API 요청/응답 바디, 값 객체, 불변 설정값 등 "데이터를 담기만 하는" 타입에 record를 쓰면 코드량이 크게 줄고 기본 멤버 구현 누락을 줄인다. 가변 컴포넌트나 잘못된 사용자 재정의까지 방지하지는 않는다.
 - JPA 엔티티(entity)는 record로 만들 수 없다. Jakarta Persistence 3.2 엔티티는 public/protected 무인자 생성자와 비final 클래스·영속 멤버를 요구하고 record를 제외한다. record는 조회 전용 프로젝션(projection)이나 서비스 계층 간 데이터 전달용으로 적합하다.
 - 컴포넌트가 가변 객체(예: `List`, `Date`)라면 record라도 얕은 불변성만 보장된다. 완전한 불변을 원하면 입력·접근자에서 방어적 복사를 검토한다. List.copyOf는 요소까지 복제하지 않으므로 가변 요소도 별도 처리해야 한다.
-- Bean Validation(`@NotNull`, `@Valid` 등)을 record 컴포넌트에 적용할 때는 애노테이션을 컴포넌트 선언부에 붙이면 컴파일러가 필드/생성자 파라미터/접근자에 적절히 전파해준다(대상 애노테이션의 `@Target` 설정에 따라 다를 수 있음).
+- record 컴포넌트의 애노테이션은 `@Target`에 따라 필드·암묵적 접근자·자동 생성 또는 컴팩트 생성자의 파라미터로 전파된다. 직접 선언한 접근자나 파라미터 목록을 직접 쓴 정규 생성자(normal canonical constructor)에는 같은 전파를 가정하지 않는다. 검증·직렬화 도구가 그 위치를 읽는다면 필요한 애노테이션을 직접 붙인다. Bean Validation의 실제 검증 실행 여부는 프레임워크 호출 경로와 별도다.
 - Jackson 등 JSON 라이브러리는 record를 기본 지원하지만, 커스텀 생성자나 이름이 다른 필드 매핑이 필요하면 `@JsonCreator`, `@JsonProperty` 설정이 추가로 필요할 수 있다.
 
 ## 심화 Q&A
@@ -112,3 +112,7 @@ A. 아니다. JLS 25는 접근자 호출 대신 컴포넌트 필드를 직접 �
 JLS 25 §8.10.3·8.10.4.2의 필드 기반 동등성·기본형 compare·컴팩트 생성자 후 자동 대입을 확인했다. 기존 전체 검증일은 유지한다.
 
 실행 확인: 2026-09-23, OpenJDK 25.0.2+10-69에서 컴팩트 생성자에서 접근자의 기본값·인자 정규화·NaN/부호 있는 0·배열 동일성을 재현했다. 구현 관측은 해당 버전 범위로 한정한다.
+
+### 2026-10-22 부분 재검증
+
+[JLS 25 §8.10.3](https://docs.oracle.com/javase/specs/jls/se25/html/jls-8.html#jls-8.10.3)·[§8.10.4](https://docs.oracle.com/javase/specs/jls/se25/html/jls-8.html#jls-8.10.4)의 애노테이션 전파 범위를 확인했다. Temurin 25.0.4.1+1에서 FIELD/METHOD/PARAMETER 대상의 커스텀 RUNTIME 애노테이션으로 자동 멤버·컴팩트 생성자에는 전파되고, 명시적 접근자·일반 정규 생성자 파라미터에는 자동 전파되지 않음을 리플렉션으로 확인했다. Bean Validation·Jackson의 실제 통합 동작은 실행하지 않았으며 verified를 유지한다.

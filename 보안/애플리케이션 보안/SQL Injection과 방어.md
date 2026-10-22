@@ -1,7 +1,7 @@
 ---
 category: "보안/애플리케이션 보안"
 tags: ["security", "sqlinjection", "시큐어코딩", "jpa"]
-updated: 2026-09-23
+updated: 2026-10-22
 verified: 2026-09-08
 ---
 
@@ -105,7 +105,9 @@ A. 아니다. 프로시저 내부에서 `EXEC(@sql)`처럼 동적 SQL 문자열�
 A. 탐지 관점에서는 비정상적으로 느린 요청 패턴(예: 매 요청마다 응답 시간이 5초씩 증가)이 WAF(Web Application Firewall)나 APM 도구에서 이상 징후로 잡힌다. 방어는 근본적으로 In-band와 동일하게 파라미터 바인딩이며, 추가로 DB 커넥션에 쿼리 타임아웃을 짧게 설정해 Time-based 기법 자체의 효용을 낮추는 것도 완화책이 된다.
 
 ### Q. JPA의 `@Query(nativeQuery = true)`와 QueryDSL의 동적 쿼리 빌더는 안전성 측면에서 어떻게 다른가?
-A. 네이티브 쿼리는 문자열을 직접 작성하므로 개발자가 파라미터 바인딩(`:param`)을 명시적으로 지켜야만 안전하고, 문자열 결합으로 조건을 추가하면 즉시 취약해진다. QueryDSL은 `BooleanBuilder`나 `where()`에 조건식을 Java 타입 안전 코드로 구성하고 내부적으로 JDBC 파라미터 바인딩을 강제하므로, 개발자가 실수로 문자열 결합을 하지 않는 한 구조적으로 더 안전하다.
+A. 안전성 기준은 쿼리 작성 도구가 아니라 입력값과 쿼리 구조의 분리다. 고정된 native SQL에 값을 바인딩하면 안전하고, Querydsl에서도 외부 입력을 사용자 정의 쿼리 구문에 넣으면 취약해질 수 있다. Querydsl JPA는 JPQL을 생성하므로 모든 backend가 직접 JDBC 바인딩을 강제한다는 설명도 맞지 않는다.
+
+Querydsl 5.1.0의 `Expressions.stringTemplate`·`booleanTemplate`은 사용자 정의 구문을 표현하는 API다. 템플릿 본문은 신뢰한 코드로 고정하고 값은 표현식 인자로 전달한다. 예를 들어 `booleanTemplate("name = '" + input + "'")`는 입력을 쿼리 구문으로 직렬화하는 위험한 반례다. 일반 조건은 생성된 경로의 `eq(input)` 같은 값 비교를 우선 사용한다. 템플릿의 문자열 치환 형식이나 동적 식별자에는 값 바인딩과 같은 보호를 기대하지 말고 허용목록을 적용한다.
 
 ### Q. NoSQL(MongoDB 등)에서도 SQL Injection과 유사한 문제가 발생하는가?
 A. 그렇다. NoSQL Injection이라 부르며, MongoDB의 경우 JSON 형태의 쿼리 연산자(`$where`, `$ne`, `$gt` 등)를 사용자 입력이 그대로 덮어쓸 수 있을 때 발생한다. 예를 들어 로그인 폼에서 `password` 필드에 `{"$ne": null}`을 주입하면 비밀번호 비교 조건을 무력화할 수 있다. 방어 원리는 동일하게 "입력값을 쿼리 구조와 분리"하는 것이며, Spring Data MongoDB의 Criteria API 사용, 입력 타입 강제 검증(문자열 필드에 객체/배열이 들어오지 못하게 막기)이 핵심이다.
@@ -125,3 +127,5 @@ A. 아니다. WAF는 알려진 패턴 등을 바탕으로 HTTP 요청을 검사�
 - [MyBatis 3 Mapper XML](https://mybatis.org/mybatis-3/sqlmap-xml.html) — #{}/ ${} 처리. 확인: 2026-09-08.
 
 부분 재검증: 2026-09-23. [OWASP SQL Injection Prevention](https://cheatsheetseries.owasp.org/cheatsheets/SQL_Injection_Prevention_Cheat_Sheet.html)의 바인딩·동적 식별자 allowlist·최소 권한과 정상 파라미터를 이용한 무단 접근 구분을 확인했다. 저장 후 재사용은 같은 분리 원칙을 적용한 사례다. JDBC·MyBatis 개별 버전 전체는 이번 범위 밖이므로 `verified`는 유지했다.
+
+부분 재검증: 2026-10-22. Context7의 Querydsl 공식 위키에서 JPA/SQL 직렬화 차이를 확인하고, [Querydsl 5.1.0 Expressions](https://github.com/querydsl/querydsl/blob/QUERYDSL_5_1_0/querydsl-core/src/main/java/com/querydsl/core/types/dsl/Expressions.java)와 [SerializerBase.handleTemplate](https://github.com/querydsl/querydsl/blob/QUERYDSL_5_1_0/querydsl-core/src/main/java/com/querydsl/core/support/SerializerBase.java)의 템플릿 문자열·표현식·상수 처리 경로를 대조했다. [OWASP SQL Injection Prevention](https://cheatsheetseries.owasp.org/cheatsheets/SQL_Injection_Prevention_Cheat_Sheet.html)의 값 바인딩·구문 허용목록 원칙에 맞춰 방어 범위를 교정했다. 실제 DB·Querydsl 실행 및 다른 ORM 버전 전체는 재검증하지 않아 `verified`를 유지했다.

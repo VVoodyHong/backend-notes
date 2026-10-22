@@ -1,7 +1,7 @@
 ---
 category: "데이터베이스/NoSQL"
 tags: ["database", "mongodb", "document-db", "wiredtiger", "복제셋"]
-updated: 2026-09-23
+updated: 2026-10-22
 verified: 2026-09-08
 ---
 
@@ -80,6 +80,21 @@ db.users.createIndex(
 
 부분 인덱스(partial index)의 unique 제약은 필터에 들어오는 문서에만 적용된다. 빈 문자열도 문자열이므로 중복이 제한되고, 숫자 같은 잘못된 타입을 거부하는 책임은 별도 스키마 검증에 있다. 기존 데이터가 해당 제약을 위반하면 인덱스 생성도 실패한다. 샤딩된 컬렉션에는 샤드 키와 unique 인덱스 제약을 별도로 검토해야 하므로 이 예를 그대로 전역 유일성 보장으로 사용하지 않는다.
 
+### 단일 문서 원자성과 읽기 후 덮어쓰기는 다르다
+
+MongoDB의 단일 문서 쓰기가 원자적이어도 `findOne()`으로 읽고 애플리케이션에서 계산한 값을 `$set`하는 두 요청 전체가 원자적인 것은 아니다. 두 요청이 같은 잔여 재고를 읽으면 나중 쓰기가 먼저 반영된 차감을 덮어쓸 수 있다. MongoDB 8.0에서 확인한 다음 조건부 갱신은 재고 조건과 차감을 한 문서 쓰기에 묶는다.
+
+```javascript
+// stock은 0 이상의 정수로 검증된 필드, _id는 단일 상품 식별자
+const result = db.inventory.updateOne(
+  { _id: "sku-1", stock: { $gte: 1 } },
+  { $inc: { stock: -1 } }
+);
+// 승인된 응답의 matchedCount === 1일 때만 예약 성공
+```
+
+동시에 실행돼도 각 갱신 시점에 필터를 다시 충족해야 한다. 승인된 응답에서 `matchedCount === 0`이면 상품 없음·재고 부족 등 조건 불충족이며 성공으로 처리하지 않는다. 네트워크 오류로 응답을 못 받은 경우는 0건과 달리 결과 불확실 상태다. 새 요청으로 무조건 반복하면 추가 차감될 수 있어 업무 요청 ID의 멱등성 처리가 필요하다. 다른 주문 문서 저장까지 원자적으로 묶거나 여러 상품을 모두 차감해야 한다면 별도 트랜잭션 경계가 필요하다. `updateMany()` 한 호출도 각 문서만 원자적이며 전체 일괄 변경의 원자성을 주지 않는다.
+
 ## 실무 관점
 
 - 스키마가 자주 바뀌는 도메인(상품 속성이 카테고리마다 다른 커머스, 로그성 데이터)에 적합하다. 반대로 여러 엔티티 간 강한 참조 무결성과 다중 문서 트랜잭션이 핵심인 도메인(정산, 결제 원장)은 신중히 검토해야 한다. MongoDB도 다중 문서 ACID 트랜잭션을 지원하지만 일반적으로 단일 문서 쓰기보다 비용이 크므로, 함께 변경할 데이터를 embedding해 트랜잭션 범위를 줄일 수 있는지 검토한다. 제품 종류만으로 RDB보다 느리다고 단정하지 않는다.
@@ -137,3 +152,8 @@ MongoDB 8.3의 `write concern: majority`는 정해진 수의 데이터 보유 �
 - [MongoDB Read Concern majority](https://www.mongodb.com/docs/manual/reference/read-concern-majority/) — 복제 읽기 보장과 최신성 경계.
 - [Self-managed MongoDB Search 1.x](https://www.mongodb.com/docs/search/self-managed/current/) — mongot 구조와 Community/Enterprise 배포.
 - [$scoreFusion](https://www.mongodb.com/docs/manual/reference/operator/aggregation/scoreFusion/) — MongoDB 8.3+ 적용 범위.
+
+부분 재검증: 2026-10-22. 버전이 고정된 MongoDB 8.0 공식 문서의 조건부 단일 문서 갱신·$inc·updateMany 원자성 범위를 확인했다. 재고 예제는 이 계약의 적용 예이며 MongoDB 서버 실행·재시도 가능한 쓰기와 업무 멱등성의 통합 시험은 하지 않았다. 기존 8.3·Search 등 전체 `verified`는 유지한다.
+
+- [MongoDB 8.0 Atomicity and Transactions](https://www.mongodb.com/docs/v8.0/core/write-operations-atomicity/) — 갱신 시 필터 재검사, 읽기 후 덮어쓰기 경쟁, 단일 문서와 여러 문서의 원자성 경계.
+- [MongoDB 8.0 updateOne](https://www.mongodb.com/docs/v8.0/reference/method/db.collection.updateOne/) — `acknowledged`·`matchedCount` 반환값.

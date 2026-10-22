@@ -1,7 +1,7 @@
 ---
 category: "Java/언어 심화"
 tags: ["java", "enum", "디자인패턴", "타입안전성"]
-updated: 2026-09-23
+updated: 2026-10-22
 verified: 2026-09-08
 ---
 
@@ -66,6 +66,12 @@ classDiagram
 
 `name()`은 선언한 상수 이름이고 `toString()`은 재정의 가능한 표시 문자열이다. `valueOf`는 `toString()`의 출력이나 대소문자를 보정한 값을 찾아주지 않으며 정확한 선언 이름을 요구한다. 이름도 장기 API·저장 계약으로 쓰면 상수 이름 변경 때 마이그레이션이 필요하므로, 안정된 외부 코드가 필요하면 별도 필드와 명시적인 조회·미지원 값 정책을 둔다.
 
+### 빈 입력을 enum 컬렉션으로 복사할 때
+
+`EnumSet.copyOf(collection)`은 입력이 일반 컬렉션이면 최소 한 원소로 enum 타입을 알아내므로, 빈 `List<Status>`를 넘기면 `IllegalArgumentException`이 발생한다. 입력이 이미 `EnumSet`이면 비어 있어도 복사할 수 있다. 빈 값이 정상인 설정·권한 목록은 `EnumSet.noneOf(Status.class)`로 타입을 지정하고 `addAll`한다.
+
+`new EnumMap<>(map)`도 빈 일반 `Map`에서는 같은 이유로 실패한다. `new EnumMap<Status, String>(Status.class)`를 만든 뒤 `putAll`하면 빈 입력도 처리할 수 있다. 제네릭 선언에 타입 인자가 있다는 사실과 런타임 컬렉션이 enum 타입 정보를 보관한다는 사실을 구분한다.
+
 ## 심화 Q&A
 
 ### Q. enum 상수별로 메서드를 오버라이드하는 방식과 하나의 메서드 안에서 switch로 분기하는 방식의 트레이드오프는?
@@ -108,3 +114,7 @@ classDiagram
 ### 2026-09-23 부분 재검증
 
 [Java SE 25 Enum](https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/lang/Enum.html)의 getDeclaringClass·name/toString·valueOf 계약을 확인했다. OpenJDK 25.0.2+10-69에서 상수별 getClass 차이와 동일 getDeclaringClass, 표시 문자열로 valueOf 호출 시 거부를 실행 확인했다. JPA 매핑·직렬화 전체의 재검증은 아니므로 기존 verified를 유지한다.
+
+### 2026-10-22 부분 재검증
+
+[Java SE 25 EnumSet.copyOf](https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/util/EnumSet.html#copyOf(java.util.Collection))와 [EnumMap(Map)](https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/util/EnumMap.html#%3Cinit%3E(java.util.Map))의 빈 일반 컬렉션 거부와 enum 전용 컬렉션 복사 계약을 확인했다. Temurin 25.0.4.1+1에서 두 실패 경로, 비어 있는 enum 전용 컬렉션의 복사, 클래스 토큰으로 초기화한 뒤 빈 입력을 추가하는 경로를 실행했다. JPA·직렬화·values 구현 전체를 다시 검증한 것은 아니므로 verified를 유지한다.

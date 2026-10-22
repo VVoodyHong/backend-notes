@@ -1,7 +1,7 @@
 ---
 category: "네트워크/네트워크 운영"
 tags: ["network", "cdn", "캐싱", "엣지"]
-updated: 2026-10-04
+updated: 2026-10-22
 verified: 2026-09-08
 ---
 
@@ -51,7 +51,7 @@ CDN이 모든 Vary 헤더를 자동으로 캐시 키에 반영한다고 가정�
 - **흔한 실수/장애 패턴**
   - 배포 시 정적 자산의 파일명을 그대로 두고 내용만 바꿔서, 퍼지 없이는 사용자가 계속 이전 버전을 받는 문제(해시가 포함된 파일명 전략(fingerprinting)으로 예방).
   - `Cache-Control: private`이 필요한 개인화 응답을 CDN이 공용 캐시로 캐싱해 다른 사용자에게 노출되는 사고. 이 부분은 [[리버스 프록시]] 노트의 캐싱 위험 논의와 동일한 원인 구조를 공유한다.
-  - CDN 장애나 특정 PoP 이상 시 오리진 IP가 그대로 공개되어 있으면 CDN을 우회한 직접 공격에 노출됨(오리진 방화벽에서 CDN IP 대역만 허용해야 함).
+  - 오리진이 인터넷에 공개되어 있으면 CDN 장애 여부와 관계없이 직접 접근으로 WAF·요청 제한을 우회할 수 있다. CDN IP 대역 제한과 내 배포의 오리진 요청 검증을 함께 적용한다.
   - 캐시 미스가 특정 시점(콘텐츠 만료, 신규 배포)에 몰려 오리진에 순간적으로 트래픽이 집중되는 캐시 스탬피드(cache stampede).
 - **관련 설정/튜닝 포인트**: `Cache-Control`/`Vary`/`ETag` 헤더 설계, 캐시 키 정규화(쿼리스트링 정렬, 불필요한 파라미터 제외), Origin Shield 활성화, 퍼지 API 자동화(CI/CD 배포 파이프라인에 연동), WAF/Rate Limiting 룰.
 
@@ -79,7 +79,9 @@ A. 있다. 캐시 히트가 나지 않아도 사용자-엣지 구간의 TLS hand
 A. 일반적으로 오리진이 응답 헤더에 `s-maxage`(공유 캐시 전용 지시자)를 명시하면 CDN은 이를 최우선으로 따르고, 없으면 `max-age`를 사용한다. CDN 콘솔에서 강제로 지정한 TTL(오버라이드 규칙)이 있으면 그 설정이 헤더보다 우선하도록 구성하는 경우도 많다. 정합성 문제를 피하려면 "오리진이 응답 헤더로 캐시 정책을 명시하고, CDN 콘솔 설정은 기본값/예외 케이스에만 사용"하는 원칙을 팀 내에서 합의해두는 것이 중요하다.
 
 ### Q. 오리진 서버가 CDN을 거치지 않고 직접 공격받는 상황을 막으려면 어떤 조치가 필요한가?
-A. 오리진의 공인 IP가 노출되면 공격자가 CDN의 보호(WAF, Rate Limiting, DDoS 흡수)를 우회해 직접 트래픽을 보낼 수 있다. 이를 막으려면 오리진 방화벽/보안 그룹에서 CDN 사업자가 공개하는 IP 대역에서 오는 트래픽만 허용하고, 추가로 CDN이 오리진에 요청 시 특정 비밀 헤더(예: `X-CDN-Secret`)를 함께 보내도록 설정해 오리진이 이를 검증하는 이중 방어를 두는 것이 일반적이다.
+A. CDN 사업자의 IP 허용목록은 그 사업자에서 온 트래픽을 제한할 뿐 특정 고객·배포를 인증하지 않는다. CloudFront의 관리형 prefix list도 사업자 범위의 네트워크 제어이므로, 다른 배포를 경유한 접근까지 내 배포의 요청으로 신뢰하면 안 된다.
+
+인터넷에 공개된 ALB를 오리진으로 쓴다면 CloudFront가 추가하는 무작위 비밀 헤더를 ALB listener에서 검사하고, 불일치 요청은 기본 규칙으로 거부한다. 헤더 이름·값은 자격증명으로 취급해 로그·클라이언트 응답에 노출하지 않고, CloudFront→오리진 HTTPS와 교체 절차를 구성한다. 직접 ALB 접근과 헤더 없는 다른 경유 요청이 모두 거부되는지 확인한다. private ALB를 쓰는 VPC origin 등 접근 경로 자체를 비공개로 만드는 방식도 요구사항에 맞게 검토한다.
 
 ## 관련 개념
 - [[리버스 프록시]]
@@ -95,3 +97,5 @@ A. 오리진의 공인 IP가 노출되면 공격자가 CDN의 보호(WAF, Rate L
 - [CloudFront cache policies](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/cache-key-understand-cache-policy.html) — cache key·Minimum TTL 예외. 확인: 2026-09-08.
 
 부분 재검증: 2026-10-04. [CloudFront: Control origin requests](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/controlling-origin-requests.html)에서 cache policy 값의 자동 전달과 origin request policy 값의 캐시 키 제외를 확인했다. 적용 범위는 AWS CloudFront의 두 정책을 사용하는 배포이며 관리형 서비스 문서에는 고정 제품 버전이 없다. 사용자별 오응답 사례는 이 동작에서 도출한 설정 검토 기준이다. 실제 배포·캐시 적중·무효화 시험은 하지 않았으며 노트 전체의 `verified`는 유지했다.
+
+부분 재검증: 2026-10-22. [CloudFront의 ALB 접근 제한](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/restrict-access-to-load-balancer.html)에서 관리형 prefix list의 서비스 범위, 비밀 헤더 검사·기본 거부·HTTPS·헤더 교체 및 VPC origin 경로를 확인했다. 적용 범위는 조회일 AWS 관리형 서비스 문서이며 고정 제품 버전은 없다. 다른 배포 경유 검사는 서비스 범위 허용과 배포 인증의 차이에서 도출한 운영 점검이다. 실제 AWS 배포·우회 시험과 캐시 정책 전체는 재검증하지 않아 `verified`를 유지했다.

@@ -1,7 +1,7 @@
 ---
 category: "Spring/웹 심화"
 tags: ["spring", "spring-mvc", "controlleradvice", "exceptionhandler", "problemdetail"]
-updated: 2026-09-22
+updated: 2026-10-22
 verified: 2026-09-08
 ---
 
@@ -36,16 +36,17 @@ flowchart TD
 @RestControllerAdvice
 public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
-    @ExceptionHandler(EntityNotFoundException.class)
-    public ProblemDetail handleNotFound(EntityNotFoundException ex) {
+    // 아래 두 예외는 애플리케이션이 정의한 업무 예외다.
+    @ExceptionHandler(OrderNotFoundException.class)
+    public ProblemDetail handleNotFound(OrderNotFoundException ex) {
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, "요청한 리소스를 찾을 수 없습니다.");
         problem.setTitle("리소스를 찾을 수 없음");
         problem.setProperty("errorCode", "ENTITY_NOT_FOUND");
         return problem;
     }
 
-    @ExceptionHandler(IllegalArgumentException.class)
-    public ProblemDetail handleIllegalArgument(IllegalArgumentException ex) {
+    @ExceptionHandler(InvalidOrderRequestException.class)
+    public ProblemDetail handleInvalidRequest(InvalidOrderRequestException ex) {
         return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, "요청 값이 올바르지 않습니다.");
     }
 
@@ -59,12 +60,13 @@ Boot 4.1.1에서 `spring.mvc.problemdetails.enabled` 기본값은 false다. true
 
 ## 실무 관점
 - **검증 실패의 상태 코드 보존**: `HandlerMethodValidationException`의 입력 오류는 400, 반환값 오류는 500이다. `ResponseEntityExceptionHandler`를 확장할 때 전달받은 상태 코드를 보존한다. `ConstraintViolationException`도 서비스 내부 불변식·반환값 검증에서 발생할 수 있으므로 타입만 보고 모두 400으로 바꾸지 않는다.
+- **표준 응답 헤더 보존**: 에러 본문을 바꿀 때 전달받은 `HttpHeaders`도 유지한다. 예를 들어 지원 메서드가 알려진 405 응답의 `Allow`를 버리면 클라이언트가 허용 메서드를 알 수 없다. Framework 7.0.9의 `ResponseEntityExceptionHandler`는 표준 예외의 헤더·상태를 함께 전달하므로 `handleExceptionInternal`이나 `createResponseEntity`를 재정의할 때 본문만 새로 만들고 이 정보를 보존한다.
 - **응답 포맷 표준화**: 팀 전체 API가 동일한 에러 응답 스키마(코드, 메시지, 타임스탬프, 필드별 검증 오류 목록 등)를 쓰도록 `@RestControllerAdvice` 하나에 모으는 것이 일반적이다. `ProblemDetail`의 `setProperty()`로 표준 필드 외 커스텀 필드(에러 코드, traceId 등)를 추가할 수 있다.
 - **예외 계층 설계**: 도메인 예외를 `BusinessException` 같은 공통 상위 타입으로 묶고 에러 코드(enum)를 필드로 갖게 설계하면, `@ExceptionHandler(BusinessException.class)` 하나로 다양한 도메인 예외를 처리하면서도 각 예외가 자신의 상태 코드/메시지를 결정하게 할 수 있다.
-- **로깅 수준 분리**: 4xx(클라이언트 귀책)와 5xx(서버 귀책)를 같은 로그 레벨로 남기면 알림/모니터링 노이즈가 커진다. `@ExceptionHandler`에서 상태 코드에 따라 `warn`/`error` 레벨을 분리하고, 5xx만 알림 채널로 연동하는 것이 실무 표준에 가깝다.
+- **로깅과 알림 분리**: 예상 가능한 입력 오류마다 스택 트레이스를 남기면 노이즈가 커진다. 오류 종류·빈도·사용자 영향을 기준으로 로그 수준과 알림을 정한다. 401/403 급증도 공격이나 인증 장애일 수 있고, 모든 5xx 한 건을 즉시 호출 알림으로 보낼 필요도 없다. HTTP 상태만으로 귀책과 알림 정책을 결정하지 않는다.
 - **처리 경계**: DispatcherServlet 밖 Filter의 예외는 기본적으로 ControllerAdvice 대상이 아니다. 반면 핸들러에 연결된 Interceptor의 preHandle/postHandle 예외는 MVC 리졸버 경로로 처리될 수 있다. 핸들러를 아직 찾지 못한 오류와 afterCompletion 내부 오류는 같은 경로로 보장하지 않는다. 보안 인증 실패는 해당 EntryPoint/FailureHandler로 처리한다.
 - **비동기/스트리밍 응답과의 충돌**: `@ExceptionHandler`가 실행되는 시점에 이미 응답이 커밋(commit)된 상태(예: 스트리밍 응답 일부가 이미 전송된 경우)라면 에러 응답 바디를 새로 쓸 수 없어 클라이언트에는 불완전한 응답만 도달한다. 스트리밍 API는 별도의 에러 프레이밍 전략이 필요하다.
-- **민감 정보 노출 방지**: 내부 예외 메시지·SQL·클래스명은 로그와 외부 응답에서 구분한다. catch-all에서 ex.getMessage()를 그대로 노출하지 않는다. 예상하지 못한 예외까지 404/400으로 매핑하면 서버 결함을 숨기므로 업무상 예외와 프로그래밍 오류를 분류한다. 위 IllegalArgumentException 예제도 입력 검증 용도로만 사용하는 도메인 범위라는 전제가 필요하다.
+- **민감 정보 노출 방지**: 내부 예외 메시지·SQL·클래스명은 로그와 외부 응답에서 구분한다. catch-all에서 ex.getMessage()를 그대로 노출하지 않는다. 예상하지 못한 예외까지 404/400으로 매핑하면 서버 결함을 숨기므로 예제처럼 요청 리소스 부재·입력 오류를 나타내는 업무 예외를 구분한다. 일반 `IllegalArgumentException`이나 JPA의 `EntityNotFoundException` 전체를 각각 400·404로 매핑하지 않는다.
 
 ## 심화 Q&A
 
@@ -99,3 +101,8 @@ A. 가능하다. WebFlux의 `@ExceptionHandler` 메서드는 `Mono<ResponseEntit
 - [ExceptionHandlerExceptionResolver 소스](https://raw.githubusercontent.com/spring-projects/spring-framework/7.0.x/spring-webmvc/src/main/java/org/springframework/web/servlet/mvc/method/annotation/ExceptionHandlerExceptionResolver.java) — 핸들러 실패 후 원본 예외 처리.
 - [Boot 설정 속성](https://docs.spring.io/spring-boot/appendix/application-properties/index.html) — Problem Details 기본 false.
 - [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) — Problem Details 필드와 보안 고려.
+
+부분 재검증: 2026-10-22. Framework 7.0.9의 표준 예외 헤더 전달과 405의 Allow 생성을 확인했다. 예제의 400·404는 애플리케이션이 정의한 업무 예외로 한정했다. 로그·알림 분리는 운영 설계 지침이며 프레임워크 기본 동작이 아니다. 새 예제의 HTTP 실행 검증 없이 전체 `verified`는 유지한다.
+
+- [ResponseEntityExceptionHandler 7.0.9](https://github.com/spring-projects/spring-framework/blob/v7.0.9/spring-webmvc/src/main/java/org/springframework/web/servlet/mvc/method/annotation/ResponseEntityExceptionHandler.java) — 상태·헤더·본문을 최종 ResponseEntity로 전달.
+- [HttpRequestMethodNotSupportedException 7.0.9](https://github.com/spring-projects/spring-framework/blob/v7.0.9/spring-web/src/main/java/org/springframework/web/HttpRequestMethodNotSupportedException.java) — 지원 메서드가 있을 때 Allow 생성.

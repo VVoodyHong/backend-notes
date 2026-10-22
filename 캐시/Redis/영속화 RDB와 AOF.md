@@ -1,7 +1,7 @@
 ---
 category: "캐시/Redis"
 tags: ["cache", "redis", "영속화", "rdb", "aof"]
-updated: 2026-09-23
+updated: 2026-10-22
 verified: 2026-09-08
 ---
 
@@ -58,6 +58,12 @@ Redis 7.0+ Multi-Part AOF 백업은 base 하나가 아니라 `appenddirname` 안
 Redis Open Source 8.10은 `BACKUP START` → 상태 확인 → `BACKUP SEAL` → 파일 복사 → `BACKUP CLEANUP` 절차를 제공한다. START로 BASE를 만들고 이후 쓰기를 INCR에 모은다. SEAL은 INCR을 flush·fsync하고 불변의 BASE·INCR·manifest 집합을 확정한다. 복구 시점은 처음 BASE를 뜬 때가 아니라 **SEAL 경계**다. `BACKUP LIST`의 완성된 파일들을 외부 저장소로 복사한 뒤 정리한다.
 
 이 기능은 AOF 비활성 상태에서도 임시 AOF 처리를 사용하지만 configured `appendonly` 값 자체를 켜지는 않는다. 한 번에 하나의 백업만 진행하며 시작 시 백업 디렉터리는 비어 있어야 한다. 노드 단위 절차이므로 여러 샤드를 각각 백업하는 것만으로 애플리케이션의 전역 일관 시점이 자동 확보된다고 판단하지 않는다. 앞의 Redis 8.4 설정 설명과 달리 이 명령은 8.10 이상에 해당한다.
+
+### 저장 실패와 쓰기 거부를 구분해서 진단한다
+
+Redis 8.4는 `stop-writes-on-bgsave-error=yes`(기본값), 하나 이상의 `save` 조건, 마지막 백그라운드 RDB 저장 실패가 함께 있으면 일반 클라이언트의 쓰기를 `MISCONF`로 거부한다. AOF를 함께 켰어도 이 RDB 조건이 먼저 적용된다. 일반 읽기는 가능하지만 해당 오류 상태에서는 `PING`도 거부될 수 있어, 단순 생존 검사 실패를 프로세스 정지와 동일하게 취급하지 않는다.
+
+디스크 여유·권한·저장 경로와 `INFO persistence`의 `rdb_last_bgsave_status`를 확인하고 저장 실패 원인을 해결한다. `stop-writes-on-bgsave-error=no`는 저장을 복구하는 조치가 아니라 RDB 실패 중 쓰기를 허용하는 정책 변경이다. AOF 쓰기·fsync 실패는 별도 거부 경로이므로 이 설정으로 해소되지 않는다. 반면 AOF rewrite 실패는 기존 AOF가 유효할 수 있으므로 `aof_last_bgrewrite_status`와 `aof_last_write_status`를 구분해 진단한다.
 
 ## 실무 관점
 
@@ -123,3 +129,9 @@ Redis는 시작 시 AOF 파일의 무결성을 검사하며, 마지막 명령이
 - [BACKUP START](https://redis.io/docs/latest/commands/backup-start/) — Redis Open Source 8.10.0+, 임시 AOF·BASE 생성·단일 백업·빈 디렉터리.
 - [BACKUP SEAL](https://redis.io/docs/latest/commands/backup-seal/) — Redis Open Source 8.10.0+, immutable 파일 집합과 seal 시점 복원.
 - [Redis 8.10.2 release](https://github.com/redis/redis/releases/tag/8.10.2) — 2026-09-17 공개 버전 확인.
+
+부분 재검증: 2026-10-22. Redis 8.4 고정 소스·설정에서 RDB 실패에 따른 쓰기 거부 조건, PING 영향, AOF 쓰기·fsync 오류의 별도 경로를 확인했다. 디스크 장애·저장 실패는 실제 서버에서 유발하지 않았으며 기존 `verified`는 유지한다.
+
+- [Redis 8.4 server.c](https://github.com/redis/redis/blob/8.4/src/server.c) — `writeCommandsDeniedByDiskError()`와 쓰기/PING 거부 조건.
+- [Redis 8.4 redis.conf](https://github.com/redis/redis/blob/8.4/redis.conf) — `stop-writes-on-bgsave-error` 기본값과 저장 재개 정책.
+- [Redis BGREWRITEAOF](https://redis.io/docs/latest/commands/bgrewriteaof/) — rewrite 실패가 기존 AOF를 훼손하지 않는 경계.

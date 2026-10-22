@@ -1,7 +1,7 @@
 ---
 category: "메시지 큐/Kafka"
 tags: ["messaging", "kafka", "kafka-streams", "stream-processing", "state-store"]
-updated: 2026-10-04
+updated: 2026-10-22
 verified: 2026-09-08
 ---
 
@@ -42,6 +42,12 @@ flowchart LR
 - 단일 입력·단일 sub-topology 예제는 파티션당 태스크 하나지만, 조인 태스크는 여러 입력 토픽의 파티션을 함께 담당할 수 있다. 병렬도는 sub-topology별 입력 파티션 수로 제한되며 repartition 토픽이 이후 단계의 병렬도를 바꿀 수 있다. [[파티션과 컨슈머 그룹]]의 할당과 구분한다.
 - 상태 저장이 필요한 연산(`aggregate`, `join`, `windowed count` 등)은 로컬 상태 저장소(state store, 기본 RocksDB)를 사용하고, 내구성을 위해 해당 상태 변경 내역을 내부 changelog 토픽(compacted topic)에 복제한다(로깅 비활성화·소스 토픽 재사용 등 구성별 예외가 있다). 인스턴스가 죽으면 다른 인스턴스가 changelog를 재생(replay)해 상태를 복구한다.
 - 윈도우 연산(windowing)은 시간 기반으로 레코드를 그룹화한다. Tumbling, Hopping, Sliding, Session 윈도우를 지원하며 `grace period`로 지연 도착 데이터를 얼마나 기다릴지 설정한다.
+
+### grace period는 벽시계 타이머가 아니다
+
+Kafka Streams 4.3의 윈도우 종료는 처리한 레코드의 타임스탬프로 전진하는 스트림 시간(stream time)을 기준으로 한다. `windowEnd + grace`를 지난 스트림 시간에 도착한 해당 윈도우의 레코드는 늦은 데이터로 버려진다. `grace=10분`을 설정했다고 서버 시계로 10분 뒤 반드시 결과가 확정되는 것은 아니다.
+
+`Suppressed.untilWindowCloses(...)`도 이 종료를 기다린다. 입력이 끊겨 스트림 시간이 전진하지 않으면 벽시계 시간이 지나도 마지막 윈도우의 결과가 나오지 않을 수 있다. 반대로 잘못된 미래 타임스탬프가 스트림 시간을 앞당기면 정상 이벤트가 늦은 데이터로 제외될 수 있으므로 타임스탬프 검증과 늦은 이벤트 지표를 함께 본다. 특정 실시간 시각에 반드시 알림을 내야 하는 요구는 윈도우 최종 집계와 별도로 설계한다.
 
 ### 정확히 한 번 처리
 `processing.guarantee=exactly_once_v2` 설정 시 내부적으로 Kafka 트랜잭션 API를 사용해 "읽기 → 상태 갱신 → 쓰기 → 오프셋 커밋"을 원자적으로 묶는다. Kafka 내 출력·상태 changelog·입력 오프셋의 일관성이 대상이며 외부 HTTP/DB 부수 효과는 포함하지 않는다. 출력 소비자는 `read_committed`로 읽어야 한다. [[오프셋 관리와 정확히 한 번 처리]] 참고.
@@ -98,3 +104,8 @@ A. Kafka Connect는 외부 시스템(DB, 파일, 다른 메시지 시스템)과 
 부분 재검증: 2026-10-04. Kafka 4.3 application reset 도구의 입력·내부·출력·로컬 상태 범위와 classic/streams 프로토콜별 도구 선택을 확인했다. 재발행 결과의 업무 중복 처리는 이 범위와 기존 EOS 계약에서 도출한 설계 판단이다. 토픽 삭제·reset·실제 재처리는 실행하지 않았고 기존 `verified`는 유지한다.
 
 - [Kafka 4.3 Application Reset Tool](https://kafka.apache.org/43/streams/developer-guide/app-reset-tool/) — 중지 조건·dry-run·출력과 로컬 환경 제외·Streams groups CLI 구분.
+
+부분 재검증: 2026-10-22. Kafka 4.3 Core Concepts와 4.3.1 Javadoc으로 스트림 시간·grace·최종 결과 suppression의 종료 조건을 확인했다. 입력 중단·미래 시각에 따른 운영 사례는 이 계약에서 도출했으며 실제 토폴로지 실행은 하지 않았다. 기존 `verified`는 유지한다.
+
+- [Kafka 4.3 Core Concepts](https://kafka.apache.org/43/streams/core-concepts/) — 레코드 기반 시간 전진과 윈도우의 지연 이벤트 제외.
+- [Kafka 4.3.1 Suppressed](https://kafka.apache.org/43/javadoc/org/apache/kafka/streams/kstream/Suppressed.html) — `untilWindowCloses`의 종료·grace 대기와 최종 결과 의미.

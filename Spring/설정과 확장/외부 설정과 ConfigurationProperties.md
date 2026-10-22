@@ -2,7 +2,7 @@
 category: "Spring/설정과 확장"
 tags: ["spring", "spring-boot", "configuration", "validation"]
 aliases: ["ConfigurationProperties", "외부화 설정", "Externalized Configuration"]
-updated: 2026-09-22
+updated: 2026-10-22
 verified: 2026-09-22
 ---
 
@@ -69,6 +69,8 @@ app:
 - **완화된 바인딩(Relaxed Binding)**: YAML은 `connect-timeout`처럼 kebab-case로 작성한다. 환경 변수는 점을 밑줄로, 하이픈은 제거하고 대문자로 바꿔 `APP_CLIENT_CONNECTTIMEOUT`으로 표현한다. 임의로 `CONNECT_TIMEOUT`을 넣어 같은 키라고 가정하지 않는다.
 - **단위**: `Duration`의 단위 없는 숫자는 기본 밀리초다. `2s`, `500ms`처럼 명시하고 기존 숫자 타입에서 변경할 때 의미가 달라지지 않는지 검사한다.
 - **컬렉션 병합**: 높은 우선순위의 리스트는 낮은 리스트 전체를 교체한다. Map은 여러 소스의 항목을 합치며 같은 세부 프로퍼티는 우선순위로 결정한다. 값이 객체인 Map에서는 같은 키 아래의 서로 다른 필드도 각각 병합될 수 있다. 프로파일에 항목 하나를 적으면 기존 리스트에 추가될 것이라는 기대가 흔한 설정 오류다.
+- **Map 키 보존**: `/tenant-a` 같은 키는 YAML에서 `"[/tenant-a]"`처럼 대괄호와 따옴표로 보존한다. 점이 있는 `a.b`는 `Map<String, String>`에서는 그대로 남지만 `Map<String, Object>`에서는 중첩 구조로 해석될 수 있어 `"[a.b]"`가 필요하다. 환경 변수에서 바인딩한 Map 키는 소문자로 변환되므로 대소문자를 구분하는 외부 식별자에는 파일·JSON 등 원래 키를 보존할 입력을 사용한다.
+- **JSON의 null은 삭제가 아님**: `SPRING_APPLICATION_JSON`에서 값을 `null`로 주어도 낮은 우선순위 소스의 값을 지우지 못한다. 프로퍼티 조회가 null을 누락으로 취급하기 때문이다. 기능 해제는 명시적인 활성화 속성 등으로 표현하고, 빈 문자열도 모든 타입에서 null과 같다고 가정하지 않는다.
 - **검증 범위**: 필수값과 숫자 범위뿐 아니라 양수 timeout·허용 URI scheme 등 업무상 제약도 필요하다. 중첩 객체 검증에는 `@Valid`, 중첩 객체 자체의 필수 여부에는 `@NotNull`을 별도로 적용한다. 선언한 제약을 바인딩 시 실제로 실행하는지 실패 기동 테스트로 확인한다.
 - **진단과 비밀**: 값이 틀리면 최종값과 출처를 함께 확인한다. Actuator `env`·`configprops`는 인증·노출 정책 안에서 사용하고 비밀값을 로그에 출력하지 않는다. 프로파일은 비밀 저장소가 아니다.
 - **갱신 경계**: 디스크 파일이나 환경 변수를 바꿨다고 기존 설정 객체와 클라이언트가 자동 재구성되지는 않는다. 실행 중 갱신은 [[Spring Cloud Config와 서비스 디스커버리]]의 지원 범위와 이미 실행 중인 작업의 설정 일관성을 따로 설계한다.
@@ -103,3 +105,5 @@ app:
 - [ConfigurationProperties API](https://docs.spring.io/spring-boot/api/java/org/springframework/boot/context/properties/ConfigurationProperties.html) — prefix·ignoreUnknownFields와 바인딩 계약.
 - [Binder API](https://docs.spring.io/spring-boot/api/java/org/springframework/boot/context/properties/bind/Binder.html) — 여러 ConfigurationPropertySource에서 타입으로 바인딩.
 - [Boot Validation](https://docs.spring.io/spring-boot/reference/io/validation.html) — Jakarta Validation 구현체와 검증 통합.
+
+부분 재검증: 2026-10-22. [Boot 4.1.1 Externalized Configuration 고정 문서](https://github.com/spring-projects/spring-boot/blob/v4.1.1/documentation/spring-boot-docs/src/docs/antora/modules/reference/pages/features/external-config.adoc)로 Map 키의 대괄호·점·환경 변수 소문자 변환과 JSON null의 우선순위 한계를 확인했다. 이번에는 바인딩을 실행하지 않았으며 기존 전체 `verified`는 유지한다.

@@ -1,7 +1,7 @@
 ---
 category: "Java/언어 심화"
 tags: ["java", "textblock", "jep", "문자열"]
-updated: 2026-09-08
+updated: 2026-10-22
 verified: 2026-09-08
 ---
 
@@ -47,8 +47,22 @@ flowchart TD
 ## 실무 관점
 - SQL 쿼리, JSON/XML 샘플 데이터, 테스트 코드의 기대값 문자열처럼 여러 줄 텍스트를 다룰 때 이스케이프 지옥(`\"`, `\n` 연쇄)을 없애준다. JPA/QueryDSL의 네이티브 쿼리나 통합 테스트의 응답 본문 비교에 특히 유용하다.
 - 문자열 보간(interpolation) 기능은 아니다. `+` 연산자나 `String.format()`, `formatted()` 메서드로 변수를 끼워 넣어야 한다. Java 21(JEP 430)과 22(JEP 459)에서 두 차례 미리보기(preview)로 제공됐던 String Templates는 JDK 23에서 세 번째 미리보기로 이어지는 대신, 커뮤니티 피드백을 반영해 설계 자체를 재검토하기로 하며 철회(withdrawn)되었고, 이 노트가 대조한 Java SE 25 언어 명세에는 포함되지 않는다. 따라서 텍스트 블록 안에서 변수를 쓰려면 여전히 줄바꿈을 갖춘 텍스트 블록 뒤에 `.formatted(value)`를 붙일 수 있다. SQL 값 입력은 문자열 보간 대신 PreparedStatement 바인딩을 사용한다.
-- 들여쓰기 계산이 "소스 코드상의 시각적 들여쓰기"에 의존하므로, 코드 포매터(formatter)가 텍스트 블록 내부 들여쓰기를 건드리면 최종 문자열 값이 바뀔 수 있다. IDE 자동 정렬 기능이 텍스트 블록을 인식하지 못하는 경우 주의가 필요하다.
+- 들여쓰기는 화면의 열 너비가 아니라 선행 공백 문자 수로 계산한다. 탭도 공백 하나와 같은 너비로 취급하므로 탭·스페이스를 섞으면 편집기에서 정렬되어 보여도 결과가 다를 수 있다. 코드 포매터(formatter)가 내용과 닫는 구분자의 상대 들여쓰기를 바꾸면 최종 문자열도 달라질 수 있다.
 - 닫는 `"""`를 본문보다 왼쪽에 두면(들여쓰기 0) 원본 코드의 들여쓰기가 그대로 문자열에 포함돼 의도치 않게 공백이 섞여 들어가는 실수가 흔하다.
+
+### 닫는 구분자와 마지막 줄바꿈
+
+닫는 `"""`를 내용 다음 줄에 놓으면 그 직전 LF도 문자열에 포함된다. 내용과 같은 줄에 붙이면 마지막 LF가 없다. 기대 문자열 비교·고정 형식 파일을 작성할 때 이 차이를 확인한다.
+
+```java
+String withLf = """
+    OK
+    """;           // "OK\n"
+String withoutLf = """
+    OK""";         // "OK"
+```
+
+줄바꿈 하나를 없애려고 `strip()`을 붙이면 의도한 앞뒤 공백까지 제거된다. 원하는 끝맺음을 리터럴에서 직접 표현하고, 필요한 줄바꿈이 CRLF라면 LF 정규화 후의 값에 그 형식을 명시적으로 적용한다.
 
 ## 심화 Q&A
 
@@ -82,3 +96,7 @@ Java 컴파일러는 Unicode 이스케이프(`\uNNNN`)를 어휘 분석(lexical 
 - [JLS 25 §3.10.6](https://docs.oracle.com/javase/specs/jls/se25/html/jls-3.html#jls-3.10.6) — 텍스트 블록 어휘 규칙·정규화·이스케이프 순서.
 - [JEP 378](https://openjdk.org/jeps/378) — Java 15 정식화와 incidental whitespace.
 - [JEP 465](https://openjdk.org/jeps/465) — String Templates 세 번째 preview 제안의 Withdrawn 상태.
+
+### 2026-10-22 부분 재검증
+
+[JLS 25 §3.10.6](https://docs.oracle.com/javase/specs/jls/se25/html/jls-3.html#jls-3.10.6)과 [Java SE 25 String.stripIndent](https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/lang/String.html#stripIndent())로 닫는 구분자 앞 LF·공백 문자 수 기준 제거를 확인했다. Temurin 25.0.4.1+1에서 마지막 LF 유무, 실제 탭과 스페이스를 섞은 내용의 차이, strip의 앞뒤 공백 제거를 확인했다. String Templates 이력·SQL 캐시 관련 기존 서술은 이번 범위 밖이므로 verified를 유지한다.

@@ -1,7 +1,7 @@
 ---
 category: "네트워크/네트워크 보안"
 tags: ["network", "pki", "인증서", "tls", "암호화"]
-updated: 2026-10-04
+updated: 2026-10-22
 verified: 2026-09-08
 ---
 
@@ -48,8 +48,8 @@ sequenceDiagram
 | 방식 | 동작 | 한계 |
 |---|---|---|
 | CRL (Certificate Revocation List) | CA가 폐기 목록을 주기적으로 배포 | 목록이 커지고 갱신 지연 발생 |
-| OCSP (Online Certificate Status Protocol) | 검증자가 개별 인증서 상태를 실시간 조회 | CA에 조회 트래픽 집중, 조회 시점에 사용자가 어떤 사이트에 접속하는지 CA에 노출되는 프라이버시 문제 |
-| OCSP Stapling | 서버가 미리 받아둔 OCSP 응답을 핸드셰이크에 첨부 | 클라이언트가 CA에 직접 묻지 않아도 됨, 서버가 주기적으로 갱신 필요 |
+| OCSP (Online Certificate Status Protocol) | 검증자가 개별 인증서의 서명된 상태 응답을 조회; 응답은 사전 생성·캐시될 수 있음 | 서명·대상·시간 유효성 검증 필요. CA 조회 부하와 접속 대상 노출 문제 |
+| OCSP Stapling | 서버가 미리 받아둔 OCSP 응답을 핸드셰이크에 첨부 | 직접 CA 조회를 줄이지만 응답 갱신과 클라이언트의 시간 유효성 검증 필요 |
 
 ### 인증서 유효기간 단축 추세
 CA/Browser Forum이 2025년 승인한 정책(SC-081v3)에 따라 공개 신뢰 TLS 인증서의 최대 유효기간이 단계적으로 단축된다: 2026-03-15 이후 발급분 200일, 2027-03-15 이후 발급분 100일, 2029-03-15 이후 발급분 47일로 줄어든다. 이는 자동 발급/갱신(ACME 기반 자동화)을 사실상 필수로 만드는 변화이며, 수동으로 인증서를 관리하던 조직은 이 시점 전에 자동 갱신 파이프라인을 갖춰야 한다.
@@ -83,7 +83,9 @@ Root의 개인키가 유출되면 그 Root 아래의 모든 인증서 체인이 
 수동 갱신 프로세스로는 47일 주기를 감당할 수 없으므로 ACME 같은 프로토콜로 발급-배포-리로드까지 완전 자동화해야 한다. 또한 자동화 파이프라인 자체의 장애(도메인 검증 실패, DNS 전파 지연 등)가 곧바로 서비스 장애로 이어질 위험이 커지므로, 만료 며칠 전 알림뿐 아니라 갱신 실패 시 즉시 재시도하는 로직과 충분한 리드타임 확보가 중요해진다.
 
 ### Q. CRL과 OCSP는 각각 어떤 상황에서 폐기 확인이 실패할 수 있는가?
-CRL은 목록 크기가 커지면 다운로드/파싱 비용이 늘고, CA가 목록 갱신을 지연하면 최근 폐기된 인증서가 여전히 유효한 것처럼 보일 수 있다. OCSP는 CA 서버가 응답하지 않을 때 클라이언트가 "soft-fail"(검증 실패를 무시하고 통과)하는 구현이 많아, 가용성 장애가 보안 우회로 이어지는 역설이 있다. OCSP Stapling은 서버가 응답을 미리 캐싱해 첨부하므로 이 문제를 완화하지만, 서버가 스테이플된 응답을 갱신하지 않으면 오히려 오래된 상태를 계속 제공하게 된다.
+A. CRL 배포와 OCSP 응답 갱신 사이에는 최근 폐기 정보가 반영되지 않는 시간이 있을 수 있다. OCSP도 즉시 실시간 상태를 보장하는 것은 아니며, RFC 6960은 사전 생성된 응답을 허용한다. 클라이언트는 응답 서명·대상 인증서·서명 권한과 함께 `thisUpdate`가 충분히 최근인지, `nextUpdate`가 있으면 아직 미래인지 확인해야 한다. 응답 생성 시각인 `producedAt`만 최근이라고 통과시키지 않는다.
+
+Stapling 갱신 실패로 오래된 응답을 받더라도 이를 유효한 폐기 상태 증거로 계속 사용해서는 안 된다. 유효한 상태를 얻지 못했을 때 연결을 실패시킬지(하드 실패, hard-fail), 폐기 확인 없이 계속할지(소프트 실패, soft-fail)는 클라이언트 정책과 관련 확장 지원에 달려 있다. Stapling을 켰다는 사실만으로 모든 클라이언트가 폐기 확인을 강제한다고 판단하지 말고 응답 누락·만료 시 동작까지 확인한다.
 
 ### Q. 사설 PKI를 도입할 때 공개 PKI 대비 추가로 고려해야 할 위험은 무엇인가?
 공개 CA는 브라우저/OS 벤더의 감사(CA/Browser Forum 정책, 신뢰 저장소 프로그램)를 거치지만 사설 CA는 조직이 스스로 Root 보호, 키 로테이션, 폐기 처리를 책임져야 한다. Root 개인키 보관 방식(HSM 사용 여부), 신뢰 저장소 배포 자동화(신규 서버/컨테이너에 Root를 어떻게 심을지), Intermediate 로테이션 절차가 갖춰지지 않으면 사설 PKI 자체가 단일 장애점이자 보안 취약점이 된다.
@@ -110,3 +112,5 @@ ECDSA는 동일 보안 강도에서 키와 서명 크기가 작아 핸드셰이�
 부분 재확인: 2026-09-23. [RFC 9525 §1.3·§6](https://www.rfc-editor.org/rfc/rfc9525.html)의 SAN·CN 배제·와일드카드·IP 식별자 검증을 확인했다. TLS 서버 이름 검증 범위이며 클라이언트 인증서의 업무 신원 매핑 규칙은 별도다. 기존 CA 정책·발급/폐기·라이브러리 구현 전체는 재검증하지 않아 `verified`는 유지한다.
 
 부분 재검증: 2026-10-04. [Java SE 25 JSSE Guide](https://docs.oracle.com/en/java/javase/25/security/java-secure-socket-extension-jsse-reference-guide.html)와 [SSLParameters endpoint identification](https://docs.oracle.com/en/java/javase/25/docs/api/java.base/javax/net/ssl/SSLParameters.html#setEndpointIdentificationAlgorithm(java.lang.String))의 raw TLS 신원 검증 책임을 확인했다. JDK 25.0.4+7·SunJSSE 25의 loopback TLS 1.3에서 임시 CA가 서명한 DNS SAN localhost 인증서를 사용했다. 기본 SSLSocket은 다른 이름도 연결됐고 HTTPS 이름 검증을 켜면 거부했으며, HttpClient 기본 경로는 localhost를 허용하고 IP SAN이 없는 127.0.0.1 접속을 거부했다. SSLEngine·공개 CA·폐기 확인·프록시·다른 TLS 구현은 실행하지 않았고 기존 `verified`는 유지한다.
+
+부분 재검증: 2026-10-22. [RFC 6960 §2.4·§2.5·§3.2](https://www.rfc-editor.org/rfc/rfc6960.html)에서 OCSP 응답 사전 생성, thisUpdate·nextUpdate·producedAt 의미와 수락 조건을 확인했다. 적용 범위는 OCSP 명세이며 특정 브라우저·JVM의 폐기 확인 기본 정책은 재검증하지 않았다. 실제 응답 만료·누락 시험 및 CA 유효기간 정책 전체를 확인한 것은 아니므로 `verified`를 유지했다.

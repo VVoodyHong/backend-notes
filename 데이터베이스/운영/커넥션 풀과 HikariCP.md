@@ -2,7 +2,7 @@
 category: "데이터베이스/운영"
 tags: ["database", "connection-pool", "hikaricp", "spring-boot", "jdbc"]
 aliases: ["HikariCP", "Connection Pool"]
-updated: 2026-09-23
+updated: 2026-10-22
 verified: 2026-09-08
 ---
 
@@ -64,7 +64,7 @@ HikariCP는 공식적으로 `minimumIdle`을 별도로 줄이지 않고 `maximum
 
 - **최대 수명과 유휴 타임아웃을 구분**: 방화벽, 로드밸런서, DB `wait_timeout`(MySQL) 등이 유휴 연결을 강제로 끊는 경우, HikariCP가 이를 모르고 죽은 연결을 반환하면 애플리케이션에서 `Communications link failure` 같은 오류가 발생한다. `maxLifetime`을 인프라 타임아웃보다 짧게 설정해 최대 연결 수명 제한 전에 교체하도록 한다. 유휴 타임아웃은 유휴 연결에만 ping하는 `keepaliveTime`도 함께 조정한다(확인한 HikariCP README 기본값 120000ms, maxLifetime보다 작아야 함). 사용 중 연결은 maxLifetime이 지나도 즉시 중단하지 않으므로 장기 쿼리의 네트워크 제한을 대신 해결하지 않는다.
 - **풀 고갈(pool exhaustion) 장애 패턴**: 트랜잭션 안에서 외부 API 호출처럼 느린 I/O를 수행하면 그 시간 동안 커넥션을 계속 점유하게 된다. 동시 요청이 몰리면 풀의 모든 연결이 느린 작업에 묶여 나머지 요청이 `connectionTimeout` 대기 후 전부 실패하는 연쇄 장애로 이어진다. `@Transactional` 범위를 최소화하고, 트랜잭션 안에서 외부 호출을 하지 않는 것이 원칙이다.
-- **leakDetectionThreshold 활용**: 코드에서 커넥션을 닫지 않는 버그(예외 경로에서 close 누락)를 운영 중 조기 발견하려면 개발/스테이징 환경에서 이 값을 켜서 로그로 누수 의심 스택 트레이스를 확보한다. 운영에서는 오버헤드를 감안해 신중히 켠다.
+- **leakDetectionThreshold는 회수 타이머가 아니다**: HikariCP 7.0.2는 임계 시간을 넘긴 연결의 대여 시점 스택을 기록할 뿐 연결을 강제 반환하거나 실행 중 SQL을 취소하지 않는다. 정상적인 장기 작업도 경고를 만들 수 있고, 이후 반납하면 `unleaked` 로그가 남는다. 이 설정만으로 풀 고갈이 복구된다고 기대하지 말고 대여 위치·점유 시간·DB의 실행 쿼리와 락 대기를 함께 확인한다. 쿼리 실행 제한은 드라이버·DB의 별도 timeout으로 설계한다.
 - **모니터링 지표**: HikariCP는 Micrometer를 통해 `hikaricp.connections.active`, `hikaricp.connections.pending`(대기 중인 요청 수), `hikaricp.connections.timeout` 같은 지표를 노출한다. `pending`이 지속되면 연결 공급보다 요구가 크다는 신호다. 작은 풀뿐 아니라 느린 SQL·락 대기·누수·연결 생성 실패를 먼저 구분한다.
 - **다중 데이터소스 환경**: 읽기/쓰기 분리나 멀티 테넌트 구조에서 데이터소스별로 풀을 분리해서 만들면, 각 풀의 `maximumPoolSize` 합이 DB의 `max_connections`를 넘지 않도록 전체 설계를 해야 한다.
 
@@ -107,3 +107,7 @@ A. 각 요청이 연결 하나를 보유한 채 두 번째 연결을 기다리�
 부분 재검증: 2026-09-23. HikariCP 공식 FAQ의 JDBC 격리 상태 추적·복원과 다중 연결 점유에 따른 풀 대기 조건을 확인했다. FAQ는 특정 릴리스의 기본값 표가 아니므로 기존 파라미터 전체 검증일은 유지한다.
 
 - [HikariCP FAQ](https://github.com/brettwooldridge/HikariCP/wiki/FAQ) — SQL로 바꾼 격리 수준의 누출, pool-locking 산식·성능 산정과의 구분.
+
+부분 재검증: 2026-10-22. HikariCP 7.0.2의 ProxyLeakTask 소스로 경고 시점의 동작, 대여 스택, 뒤늦은 반납 로그를 확인했다. 실제 연결 누수·쿼리 취소 시험은 하지 않았으며 파라미터 기본값 전체와 기존 `verified`는 유지한다.
+
+- [HikariCP 7.0.2 ProxyLeakTask](https://github.com/brettwooldridge/HikariCP/blob/HikariCP-7.0.2/src/main/java/com/zaxxer/hikari/pool/ProxyLeakTask.java) — 생성 시 스택 확보, `run()`의 경고, `cancel()`의 반환 로그; 강제 회수·SQL 취소 기능 없음.

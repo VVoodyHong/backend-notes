@@ -1,7 +1,7 @@
 ---
 category: "Spring/Spring Boot 내부 동작"
 tags: ["spring", "spring-boot", "actuator", "헬스체크", "모니터링", "kubernetes"]
-updated: 2026-09-23
+updated: 2026-10-22
 verified: 2026-09-08
 ---
 
@@ -51,6 +51,7 @@ management:
 - 기본적으로 `show-details`는 `never`이므로 세부 원인(details)이 응답에 담기지 않는다. 운영 트러블슈팅을 위해 `when-authorized`(설정된 health roles에 따라 인가된 사용자에게) 또는 내부망 한정으로 `always`를 설정하는 경우가 많다. 외부에 무분별하게 노출하면 내부 인프라 정보(DB 호스트 등) 유출 위험이 있다.
 - 쿠버네티스 `livenessProbe`에 외부 의존성(DB, 캐시)을 포함한 헬스 그룹을 잘못 연결하면, DB가 일시적으로 느려질 때 정상 파드까지 연쇄적으로 재시작되는 장애 패턴이 흔하다. liveness는 반드시 프로세스 자체 상태만 보도록 분리해야 한다.
 - `management.endpoints.web.exposure.include`는 기본적으로 `health`만 노출한다. `*`로 전체 개방하는 것은 운영 환경에서 지양하고, 필요한 엔드포인트만 명시적으로 열어야 한다.
+- **노출과 인증은 별도 설정**: Boot 4.1.1의 endpoint `access`는 사용 가능한 작업, `web.exposure`는 HTTP 노출, `SecurityFilterChain`은 요청자의 인증·인가를 제어한다. `access=unrestricted`나 `include` 자체가 인증 정책은 아니다. 사용자 정의 체인을 하나라도 등록하면 Boot의 기본 보안 구성이 물러나므로 관리 경로와 일반 API를 모두 보호하는 체인이 필요하다. `health.show-details=when-authorized`도 상세 정보 표시 조건일 뿐 엔드포인트 접근 제한을 대신하지 않는다.
 - `HealthIndicator`를 커스텀으로 만들 때 외부 호출에 타임아웃을 걸지 않으면, 그 자체가 헬스체크 응답 지연 및 스레드 점유로 이어져 오히려 헬스체크가 장애의 원인이 될 수 있다.
 - **관리 포트 분리**: `management.server.port`가 별도면 관리 서버는 정상이지만 서비스 포트·요청 풀이 고장 난 상태를 놓칠 수 있다. `management.endpoint.health.probes.add-additional-paths=true`는 서비스 포트에 `/livez`·`/readyz`를 추가한다. 이 경로의 보안 정책도 프로브와 맞춘다.
 - **공유 의존성의 readiness**: 기본 readiness 그룹에는 외부 인디케이터가 자동 포함되지 않는다. 공용 DB를 모든 파드의 readiness에 넣으면 DB 장애 때 모든 파드가 트래픽 대상에서 제외될 수 있다. DB 없이 제공할 수 있는 기능, 호출자 오류 처리와 대체 응답을 고려해 포함 여부를 정한다. readiness 실패가 항상 최선의 장애 대응은 아니다.
@@ -78,7 +79,7 @@ A. 기본 health 캐시 TTL은 0ms다. 엔드포인트 캐시는 입력 없는 r
 A. 기본 `StatusAggregator`의 우선순위(`DOWN > OUT_OF_SERVICE > UP > UNKNOWN`)에 따라 `UNKNOWN`은 `UP`보다 낮은 우선순위를 가지므로, 다른 인디케이터가 모두 `UP`이면 전체 상태는 `UP`으로 집계된다. `UNKNOWN`을 장애 신호로 쓰고 싶다면 커스텀 `StatusAggregator`로 우선순위를 재정의해야 한다.
 
 ### Q. Actuator 엔드포인트를 인증 없이 외부에 노출했을 때 발생할 수 있는 구체적인 위험은 무엇인가?
-A. `/actuator/env`, `/actuator/heapdump`, `/actuator/threaddump` 같은 엔드포인트가 노출되면 환경 변수(DB 비밀번호 등이 마스킹되지 않은 경우), 힙 덤프를 통한 메모리 내 민감 정보, 스레드 상태를 통한 내부 로직 추론 등이 외부에 유출될 수 있다. 최소한 `health`, `info` 정도만 공개 노출하고 나머지는 Spring Security와 결합해 내부망/인증된 사용자에게만 접근을 허용해야 한다.
+A. `/actuator/env`, `/actuator/heapdump`, `/actuator/threaddump`는 설정값·메모리의 민감 정보·내부 실행 구조를 노출할 수 있다. 공개 헬스체크는 필요한 상태 정보로 제한하고 나머지는 명시적으로 인가한다. `info`도 빌드·Git 정보나 사용자 정의 내용을 담을 수 있어 이름만 보고 공개해도 안전하다고 판단하지 않는다.
 
 ### Q. 헬스체크 응답이 `UP`인데도 실제로는 요청을 정상 처리하지 못하는 상황이 왜 발생할 수 있는가?
 A. 헬스체크는 등록된 `HealthIndicator`가 검사하는 범위 내에서만 상태를 판단한다. 예를 들어 스레드 풀이 고갈되어 새 요청을 받지 못하는 상황이나, 특정 외부 API(헬스 인디케이터로 등록되지 않은 의존성)가 응답 지연 중인 경우는 기본 헬스체크로는 감지되지 않는다. 헬스체크는 "필요조건"이지 "충분조건"이 아니므로, 실제 트래픽 기반 메트릭(응답 지연, 에러율)과 함께 모니터링해야 한다.
@@ -102,3 +103,5 @@ A. 헬스체크는 등록된 `HealthIndicator`가 검사하는 범위 내에서�
 
 - [Boot 4.1.1 Endpoints 고정 문서](https://raw.githubusercontent.com/spring-projects/spring-boot/v4.1.1/documentation/spring-boot-docs/src/docs/antora/modules/reference/pages/actuator/endpoints.adoc) — 커스텀 매핑 시 기본 DOWN/OUT_OF_SERVICE 매핑 제거, 그룹 상속·재정의.
 - [SimpleHttpCodeStatusMapper 4.1.1](https://raw.githubusercontent.com/spring-projects/spring-boot/v4.1.1/module/spring-boot-health/src/main/java/org/springframework/boot/health/actuate/endpoint/SimpleHttpCodeStatusMapper.java) — 비어 있지 않은 사용자 매핑 선택과 미등록 상태의 200 반환.
+
+부분 재검증: 2026-10-22. [Boot 4.1.1 Endpoints 고정 문서](https://github.com/spring-projects/spring-boot/blob/v4.1.1/documentation/spring-boot-docs/src/docs/antora/modules/reference/pages/actuator/endpoints.adoc)에서 endpoint access·HTTP 노출·보안 체인의 분리, 사용자 체인 등록 시 기본 보안 구성의 후퇴, health 상세 정보와 info의 공개 범위를 확인했다. 실제 배포의 접근 제어는 실행 검증하지 않았으며 전체 `verified`는 유지한다.

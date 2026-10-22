@@ -2,7 +2,7 @@
 category: "데이터베이스/고급 쿼리와 모델링"
 tags: ["database", "cte", "recursive-query", "sql", "mysql", "postgresql"]
 aliases: ["CTE", "Common Table Expression"]
-updated: 2026-09-23
+updated: 2026-10-22
 verified: 2026-09-08
 ---
 
@@ -82,6 +82,24 @@ SELECT * FROM path;
 
 PostgreSQL 14+는 `CYCLE` 절로 이 패턴을 표준화해 제공한다(`... UNION ALL ... CYCLE id SET is_cycle USING path`). MySQL 8.4에는 `CYCLE` 절과 위 PostgreSQL 배열 문법이 없다. JSON 배열과 `JSON_CONTAINS()` 또는 충분한 길이로 `CAST`한 구분자 포함 문자열 경로로 방문 검사를 구현한다.
 
+### MySQL 재귀 경로의 타입과 길이
+
+MySQL 8.4 재귀 CTE의 결과 타입은 앵커 SELECT만으로 결정한다. 재귀 단계에서 문자열이 길어져도 자동 확장되지 않는다. 경로 누적에 `SELECT '1' AS path`를 쓰면 비엄격 모드에서는 값이 잘리고, 엄격 모드에서는 `Data too long` 오류가 날 수 있다. 방문 경로가 잘리면 순환 검사도 잘못될 수 있으므로 앵커부터 필요한 폭을 확보한다.
+
+```sql
+-- MySQL 8.4: 최대 깊이와 ID 길이를 계산해 정한 예제 폭
+WITH RECURSIVE paths(n, path) AS (
+  SELECT 1, CAST('/1/' AS CHAR(64))
+  UNION ALL
+  SELECT n + 1, CONCAT(path, n + 1, '/')
+  FROM paths
+  WHERE n < 3
+)
+SELECT * FROM paths ORDER BY n;
+```
+
+예제 결과는 `/1/`, `/1/2/`, `/1/2/3/`이다. `CHAR(64)`는 이 예제의 상한일 뿐 범용 설정이 아니다. 실제 계층에서는 ID 최대 길이·구분자·허용 깊이로 폭을 산정하고, 깊이 제한으로 잘린 결과를 완전한 계층으로 취급하지 않는다.
+
 ### PostgreSQL의 데이터 변경 CTE
 
 CTE가 항상 SELECT 결과만 뜻하는 것은 아니다. PostgreSQL 18은 최상위 문장에 붙는 WITH 안에 INSERT·UPDATE·DELETE·MERGE를 둘 수 있다. 다음 예시는 삭제된 행을 `RETURNING`으로 받아 보관 테이블에 넣는다.
@@ -145,3 +163,7 @@ PostgreSQL은 버전에 따라 다르다. `MATERIALIZED`로 강제하거나 옵�
 부분 재검증: 2026-09-23. PostgreSQL 18 데이터 변경 CTE의 실행 횟수·동일 스냅샷·RETURNING 전달 경계를 확인했다. 추가 SQL은 공식 문서와 대조했으며 실제 PostgreSQL에서는 실행하지 않았다. 기존 전체 검증일은 유지한다.
 
 - [PostgreSQL 18 Data-Modifying Statements in WITH](https://www.postgresql.org/docs/18/queries-with.html#QUERIES-WITH-MODIFYING) — 미참조 변경 CTE 실행과 같은 행 중복 변경 제약.
+
+부분 재검증: 2026-10-22. MySQL 8.4의 재귀 CTE 타입 추론·비엄격 모드 잘림·엄격 모드 오류·앵커 CAST를 확인했다. 추가 SQL은 문서와 대조했으며 MySQL에서 실행하지 않았다. 다른 엔진과 기존 `verified`는 유지한다.
+
+- [MySQL 8.4 Recursive CTEs](https://dev.mysql.com/doc/refman/8.4/en/with.html#common-table-expressions-recursive) — 앵커 기준 결과 타입과 재귀 문자열 확장 조건.

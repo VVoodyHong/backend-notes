@@ -2,7 +2,7 @@
 category: "Spring/웹 심화"
 tags: ["spring", "http-client", "webclient", "timeout", "retry", "안정성"]
 aliases: ["HTTP 타임아웃", "재시도 예산"]
-updated: 2026-09-22
+updated: 2026-10-23
 verified: 2026-09-22
 ---
 
@@ -54,6 +54,12 @@ Mono<String> response = webClient.get()
 
 전체 `timeout`을 `retryWhen` 앞에만 두면 재구독마다 제한 시간이 다시 시작한다. 논리 요청 전체를 제한하려면 재시도 연산자의 바깥쪽에 제한을 둔다. 타이머는 구독 시 시작하므로 서비스 진입부터 이미 소비한 시간을 포함하려면 남은 예산을 계산해 전달한다.
 
+### Retry-After와 남은 시간
+
+RFC 9110의 `Retry-After`는 HTTP 날짜(`HTTP-date`) 또는 음이 아닌 정수 초(`delay-seconds`)다. `Retry-After: 120`은 응답 수신 후 120초를 뜻하며 밀리초나 절대 시각이 아니다. 날짜 형식도 있으므로 정수 파싱만으로 처리하지 않는다. 위 `Retry.backoff(...)` 예제는 이 헤더를 읽지 않고 자체 백오프를 적용한다.
+
+서버가 요청한 대기 시간과 다음 시도를 남은 데드라인 안에 수용할 수 없다면 이번 요청에서는 재시도하지 않는다. 대기 시간을 임의로 줄여 조기 재시도하면 서버의 복구 시간을 무시하게 된다. 업무가 지연 실행을 허용하면 별도 작업으로 넘기되 멱등성과 처리 상태 조회를 유지한다. 날짜 형식은 서버·클라이언트 시계 차이도 고려하고, 파싱 실패·과도하게 큰 값에 대한 정책을 명시한다. 이는 명세의 헤더 의미를 재시도 예산에 적용한 설계 지침이다.
+
 ## 실무 관점
 
 - **중복 실행**: 응답을 못 받았어도 원격 서버가 커밋했을 수 있다. 주문·결제·상태 변경은 [[멱등성 키 설계]]처럼 중복 요청을 구별할 계약이 필요하다.
@@ -94,3 +100,5 @@ A. 원격 작업이 아직 실행 중이면 같은 작업이 겹치고, 풀 대�
 - [Mono API](https://projectreactor.io/docs/core/release/api/reactor/core/publisher/Mono.html) / [Flux API](https://projectreactor.io/docs/core/release/api/reactor/core/publisher/Flux.html) — timeout과 재구독.
 - [RetryBackoffSpec](https://projectreactor.io/docs/core/release/api/reactor/util/retry/RetryBackoffSpec.html) — 횟수·필터·백오프·지터.
 - [RFC 9110 §9.2.2](https://www.rfc-editor.org/rfc/rfc9110.html#section-9.2.2) — 멱등성과 자동 재시도 조건.
+
+부분 재검증: 2026-10-23. [RFC 9110 §10.2.3](https://www.rfc-editor.org/rfc/rfc9110.html#section-10.2.3)의 Retry-After 두 형식·단위·응답 수신 기준을 확인하고 기존 예제에 헤더 처리 로직이 없음을 대조했다. 예산 초과 시 중단·지연 작업 전환은 운영 설계 지침이며, HTTP 클라이언트 자동 처리나 새 파서 구현을 실행 검증한 것은 아니다. 기존 전체 `verified`는 유지한다.
